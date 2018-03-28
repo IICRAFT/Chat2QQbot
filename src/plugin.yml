@@ -1,0 +1,15 @@
+#name是你的插件名称,这个可以任意
+name: Chat2QQbot
+#main是你的包名+类名
+main: com.willzcode.Chat2QQbot
+#version 这个是版本号
+version: 1.0
+depend: [ProtocolLib]
+
+commands:
+   fuck:
+     description: 命令
+     usage: /fuck <player> fuck a player
+   cq:
+     description: 命令
+     usage: /cq
