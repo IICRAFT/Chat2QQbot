@@ -76,6 +76,7 @@ public class ItemHelper {
     public static String getLocalizedName(ItemStack i, boolean oldname) {
         try {
             if (oldname) {
+                i = new ItemStack(i);
                 ItemMeta meta = i.getItemMeta();
                 meta.setDisplayName("");
                 i.setItemMeta(meta);
