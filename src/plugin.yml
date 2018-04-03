@@ -7,9 +7,6 @@ version: 1.0
 depend: [ProtocolLib]
 
 commands:
-   fuck:
-     description: 命令
-     usage: /fuck <player> fuck a player
    cq:
      description: 命令
      usage: /cq

@@ -1,0 +1,6 @@
+#you must change following values
+groupid: 000000
+port: 000000
+servername: 服务器
+enable-askyblock: false
+enable-bind-plugin: false

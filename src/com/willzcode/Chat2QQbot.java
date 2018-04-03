@@ -8,7 +8,7 @@ import com.wasteofplastic.askyblock.Island;
 import org.bukkit.*;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
-import org.bukkit.entity.Item;
+import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
@@ -28,11 +28,13 @@ import java.util.*;
  * Created by willz on 2018/3/15.
  */
 public class Chat2QQbot extends JavaPlugin implements Listener {
-    ServerSocket server = null;
-    Socket sk = null;
-    BufferedReader rdr = null;
-    PrintWriter wtr = null;
     IPlayerDataManager playerLoader = null;
+
+    String servername;
+    int port;
+    String groupid;
+    boolean enableAskyblock;
+    boolean enableBindPlugin;
 
     public String checkInv(String name) {
         Player p = Bukkit.getServer().getPlayer(name);
@@ -130,7 +132,7 @@ public class Chat2QQbot extends JavaPlugin implements Listener {
                 }
 
                 if (fromchat) {
-                    sendMsg(str);
+                    sendToGroup(str);
                 } else {
                     sender.sendMessage(str);
                 }
@@ -140,14 +142,13 @@ public class Chat2QQbot extends JavaPlugin implements Listener {
 
     class ServerThread extends Thread
     {
-
+        BufferedReader rdr = null;
+        PrintWriter wtr = null;
         Socket sk = null;
         public ServerThread(Socket sk)
         {
             this.sk = sk;
         }
-
-
 
         public void run()
         {
@@ -156,44 +157,54 @@ public class Chat2QQbot extends JavaPlugin implements Listener {
                 wtr = new PrintWriter(sk.getOutputStream());
                 rdr = new BufferedReader(new InputStreamReader(sk
                         .getInputStream()));
-                String msg = rdr.readLine();
-                getLogger().info("Received message:" + msg);
-                if(msg.indexOf("!command!")!=-1)
+                String payload = rdr.readLine();
+                getLogger().info("Received message:" + payload);
+                if(payload.indexOf("001|invsee|")!=-1)
                 {
-                    String cmd = msg.replace("!command!", "");
-                    Bukkit.getServer().dispatchCommand(Bukkit.getServer().getConsoleSender(), cmd);
-                    sendMsg("[已执行]");
-                }
-                else if(msg.indexOf("!invsee!")!=-1)
-                {
-                    String pn = msg.replace("!invsee!", "").replace(" ", "");
+                    String pn = payload.replace("001|invsee|", "").replace(" ", "");
                     try {
-                        sendMsg(checkInv(pn));
+                        sendToGroup(checkInv(pn));
                     } catch (Exception e) {
                         e.printStackTrace();
-                        sendMsg("读取异常！");
+                        sendToGroup("读取异常！");
                     }
                 }
-                else if(msg.indexOf("!island!")!=-1)
+                else if(enableAskyblock && payload.startsWith("001|island|"))
                 {
-                    String pn = msg.replace("!island!", "").replace(" ", "");
+                    String pn = payload.replace("001|island|", "").replace(" ", "");
                     try {
                         checkIsland(pn, true, null);
                     } catch (Exception e) {
                         e.printStackTrace();
-                        sendMsg("读取异常！");
+                        sendToGroup("读取异常！");
                     }
                 }
-                else
+                else if(enableAskyblock && payload.startsWith("001|message|"))
                 {
+                    String[] args = payload.split("\\|");
+                    if (args.length < 5) {
+                        throw new StringIndexOutOfBoundsException();
+                    }
+                    String qq = args[2];
+                    String nick = args[3];
+                    String msg = args[4];
+                    if (enableBindPlugin) {
+
+                        String binded = MustBindYourQQ.plugin.getQQBinded(qq);
+                        if(binded.isEmpty())
+                            Bukkit.broadcastMessage(String.format("§7[§3群消息§7]§b%s§7:§6%s", nick, msg));
+                        else
+                            Bukkit.broadcastMessage(String.format("§7[§3群消息§7]§b%s(%s)§7:§6%s", nick, binded, msg));
+                    } else {
+                        Bukkit.broadcastMessage(String.format("§7[§3群消息§7]§b%s§7:§6%s", nick, msg));
+                    }
+
+                    sendToGroup("[已发送]");
+                } else if (payload.startsWith("001|broadcast|")) {
+                    String msg = payload.replace("001|broadcast|", "");
                     Bukkit.broadcastMessage(msg);
-                    sendMsg("[已发送]");
                 }
-//                System.out.println("从客户端来的信息：" + line);
-//              特别，下面这句得加上     “\n”,
-//                wtr.println("你好，服务器已经收到您的信息！'" + line + "'\n");
-//                wtr.flush();
-//                System.out.println("已经返回给客户端！");
+
             }
             catch (IOException e)
             {
@@ -213,158 +224,110 @@ public class Chat2QQbot extends JavaPlugin implements Listener {
             getLogger().warning("Your version of CraftBukkit is not supported.");
         }
 
-        getLogger().info("Chat2QQbot is started successfully!");
-        //注册监听
+        //注册事件监听
         Bukkit.getPluginManager().registerEvents(this, this);
 
+        initialize();
+
+        getLogger().info("Chat2QQbot is started successfully!");
+        sendToGroup("服务器已启动完成！");
+    }
+
+    void initialize() {
+        saveDefaultConfig();
+        reloadConfig();
+        FileConfiguration cfg = getConfig();
+        servername = cfg.getString("servername");
+        port = cfg.getInt("port");
+        groupid = cfg.getString("groupid");
+        enableAskyblock = cfg.getBoolean("enable-askyblock");
+        enableBindPlugin = cfg.getBoolean("enable-bind-plugin");
+
+        ServerSocket server = null;
+        final Socket[] sk = {null};
         try
         {
-            server = new ServerSocket(6801);
+            if(server != null)
+                server.close();
+            server = new ServerSocket(port);
         }
         catch (IOException e)
         {
             e.printStackTrace();
         }
-        new Thread(){
-            @Override
-            public void run() {
+        ServerSocket finalServer = server;
+        new Thread(() -> {
 
-                while (true)
+            while (true)
+            {
+                try
                 {
-                    try
-                    {
-//                  每个请求交给一个线程去处理
-                        sk = server.accept();
-                        ServerThread th = new ServerThread(sk);
-                        th.start();
-                        sleep(100);
-                    }
-                    catch (Exception e)
-                    {
-                        e.printStackTrace();
-                    }
-
+                    //每个请求交给一个线程去处理
+                    sk[0] = finalServer.accept();
+                    ServerThread th = new ServerThread(sk[0]);
+                    th.start();
+                    Thread.sleep(100);
                 }
+                catch (Exception e)
+                {
+                    e.printStackTrace();
+                }
+
             }
-        }.start();
-//        new BukkitRunnable() {
-//            @Override
-//            public void run() {
-////                getLogger().info("Bukkit runner runing!");
-//                try
-//                {
-//                    //1.创建客户端Socket，指定服务器地址和端口
-//                    Socket socket=new Socket("localhost", 6801);
-////                    //2.获取输出流，向服务器端发送信息
-////                    OutputStream os=socket.getOutputStream();//字节输出流
-////                    PrintWriter pw=new PrintWriter(os);//将输出流包装为打印流
-////                    if(player!="none233")
-////                    {
-////                        pw.write(msg);
-////                        player="none233";
-////                    }
-////                    else
-////                    {
-////                        pw.write("getmsg");
-////                    }
-////                    pw.flush();
-////                    socket.shutdownOutput();//关闭输出流
-//                    //3.获取输入流，并读取服务器端的响应信息
-//                    InputStream is=socket.getInputStream();
-//                    BufferedReader br=new BufferedReader(new InputStreamReader(is));
-//                    String info=null;
-//                    info=br.readLine();
-//                    getLogger().info("Received message:" + info);
-//                    if(info.indexOf("!command!")!=-1)
-//                        {
-//                            String cmd = info.replace("!command!", "");
-//                            Bukkit.getServer().dispatchCommand(Bukkit.getServer().getConsoleSender(), cmd);
-//                            sendMsg("指令 "+cmd+" 已执行");
-//                        }
-//                        else
-//                        {
-//                            Bukkit.broadcastMessage(info);
-//                            sendMsg("消息已发送");
-//
-////                            if(player!="none233")
-////                            {
-////                                msg+="]][[<提示>"+sourceStrArray[i].replace("command>", "")+"已执行";
-////                            }
-////                            else
-////                            {
-////                                player="ok";
-////                                msg="<提示>"+sourceStrArray[i].replace("command>", "")+"已执行";
-////                            }
-//                        }
-//                    //Bukkit.broadcastMessage("debug:"+info);
-//                    //4.关闭资源
-//                    br.close();
-//                    is.close();
-//                    socket.close();
-//                } catch (Exception e) {
-//                    e.printStackTrace();
-//                }
-//            }
-//        }.runTaskTimer(this, 0L, 20L);
-        sendMsg("服务器已启动完成");
+        }).start();
     }
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
-        if(label.equals("fuck"))
-        if (sender.isOp() && args.length > 0) {
-            String p = args[0];
-            getLogger().info("fuck a player: " + p);
-            if(Bukkit.getOfflinePlayer(p).isOnline()){
-                Player player = Bukkit.getPlayer(p);
-                player.kickPlayer("You are fucked!");
-                player.setBanned(true);
-            }else{
-                OfflinePlayer player = Bukkit.getOfflinePlayer(p);
-                player.setBanned(true);
-            }
-        }
-
-        if(label.equals("cq"))
+        if(sender.isOp() && label.equals("cq"))
             if (args.length > 0) {
-                sender.sendMessage(checkInv(args[0]));
+                if(args[0].equalsIgnoreCase("reload")) {
+                    initialize();
+                    sender.sendMessage("配置重载!");
+                }
+
+                if (args[0].equalsIgnoreCase("msg") && args.length > 1) {
+                    StringBuilder msg = new StringBuilder();
+                    for(int i = 1; i < args.length; i++) {
+                        if(i > 1)
+                            msg.append(' ');
+                        msg.append(args[i]);
+                    }
+                    sendToGroup(msg.toString());
+                }
             }
         return true;
-    }
-
-    @Override
-    public void onDisable()
-    {
-        getLogger().info("Chat2QQbot is stoped successfully!");
     }
 
     @EventHandler
     public void onPlayerSay(AsyncPlayerChatEvent event)
     {
         if(!event.isCancelled()) {
-            long lvl = ASkyBlockAPI.getInstance().getLongIslandLevel(event.getPlayer().getUniqueId());
-            sendMsg("[空岛" + lvl + "级]" + event.getPlayer().getName() + ":" + event.getMessage());
+            if(enableAskyblock) {
+                long lvl = ASkyBlockAPI.getInstance().getLongIslandLevel(event.getPlayer().getUniqueId());
+                sendToGroup(String.format("[空岛%s级]%s:%s", lvl, event.getPlayer().getName(), event.getMessage()));
+            }
+            else
+                sendToGroup(String.format("%s:%s", event.getPlayer().getName(), event.getMessage()));
         }
     }
 
     @EventHandler
     public void onPlayerJoin(PlayerJoinEvent event)
     {
-        sendMsg("一服: "+event.getPlayer().getName()+" 上线了");
-        //sendMsg(checkInv(event.getPlayer().getName()));
+        sendToGroup(String.format("[%s] %s 上线了", servername, event.getPlayer().getName()));
     }
 
     @EventHandler
-    public void onPlayerQuit(PlayerQuitEvent event)
-    {
-        sendMsg("一服: "+event.getPlayer().getName()+" 下线了");
+    public void onPlayerQuit(PlayerQuitEvent event) {
+        sendToGroup(String.format("[%s] %s 下线了", servername, event.getPlayer().getName()));
     }
 
-    public void sendMsg(String msg) {
+    public void sendToGroup(String msg) {
         Bukkit.getScheduler().runTaskAsynchronously(this, new Runnable() {
             @Override
             public void run() {
-                String res = post("http://localhost:5701/send_group_msg?group_id=597884379", "message="+msg);
+                String res = post("http://localhost:5701/send_group_msg?group_id="+groupid, "message="+msg);
             }
         });
     }
