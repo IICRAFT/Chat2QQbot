@@ -6,6 +6,7 @@ import com.wasteofplastic.askyblock.ASkyBlock;
 import com.wasteofplastic.askyblock.ASkyBlockAPI;
 import com.wasteofplastic.askyblock.Island;
 import org.bukkit.*;
+import org.bukkit.block.BlockState;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
 import org.bukkit.configuration.file.FileConfiguration;
@@ -16,6 +17,7 @@ import org.bukkit.event.player.AsyncPlayerChatEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.Inventory;
+import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.material.MaterialData;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -26,17 +28,19 @@ import java.util.*;
 
 /**
  * Created by willz on 2018/3/15.
+ * A Bukkit plugin make connection to group using coolq
  */
+@SuppressWarnings({"SpellCheckingInspection", "deprecation"})
 public class Chat2QQbot extends JavaPlugin implements Listener {
-    IPlayerDataManager playerLoader = null;
+    private IPlayerDataManager playerLoader = null;
 
-    String servername;
-    int port;
-    String groupid;
-    boolean enableAskyblock;
-    boolean enableBindPlugin;
+    private String servername;
+    private String groupid;
+    private boolean enableAskyblock;
+    private boolean enableBindPlugin;
+    private ServerSocket serverSocket;
 
-    public String checkInv(String name) {
+    private String checkInv(String name) {
         Player p = Bukkit.getServer().getPlayer(name);
         if (p == null && playerLoader != null) {
             p = playerLoader.loadPlayer(name);
@@ -47,16 +51,16 @@ public class Chat2QQbot extends JavaPlugin implements Listener {
         boolean hasbag = false;
 
         try {
-            ItemStack[] ia = p.getEquipment().getArmorContents();
-            for (int i = 0; i < ia.length; i++)
-                if (ia[i] != null && ia[i].getType() != Material.AIR)
-                    invstr += ItemHelper.getShownString(ia[i]) + " ";
+            assert p != null;
+            ItemStack[] itemStacks = p.getEquipment().getArmorContents();
+            for (ItemStack anIa : itemStacks)
+                if (anIa != null && anIa.getType() != Material.AIR)
+                    invstr += ItemHelper.getShownString(anIa) + " ";
         } catch (Exception e) {
             getLogger().warning("can load Armor of player:"+name);
         }
 
         Inventory inventory = p.getInventory();
-        int size = inventory.getSize();
         for (ItemStack item:inventory.getContents()) {
             if (item != null && item.getType() != Material.AIR) {
                 if (ItemHelper.isContainer(item)) {
@@ -69,83 +73,118 @@ public class Chat2QQbot extends JavaPlugin implements Listener {
         return "玩家 " + name + " 有如下物品"+(hasbag?"(已展开手提袋)":"")+"：" + invstr;
     }
 
-    public void checkIsland(String name, boolean fromchat, CommandSender sender) {
-        if (!fromchat && sender == null) {
-            throw new NullPointerException();
-        }
-        ASkyBlockAPI asapi = ASkyBlockAPI.getInstance();
-
-        UUID targetPlayer = Bukkit.getOfflinePlayer(name).getUniqueId();
-        getLogger().info("island for " + targetPlayer);
-        Island island = ASkyBlock.getPlugin().getGrid().getIsland(targetPlayer);
-        World iworld = asapi.getIslandWorld();
-        final HashSet chunkSnapshot = new HashSet();
-
+    private Set<ChunkSnapshot> getIslandChunk(Island island) {
+        World iworld = ASkyBlockAPI.getInstance().getIslandWorld();
+        Set<ChunkSnapshot> chunks = new HashSet<>();
         for(int x = island.getMinProtectedX(); x < island.getMinProtectedX() + island.getProtectionSize() + 16; x += 16) {
             for(int z = island.getMinProtectedZ(); z < island.getMinProtectedZ() + island.getProtectionSize() + 16; z += 16) {
                 if(!iworld.getBlockAt(x, 0, z).getChunk().isLoaded()) {
                     iworld.getBlockAt(x, 0, z).getChunk().load();
-                    chunkSnapshot.add(iworld.getBlockAt(x, 0, z).getChunk().getChunkSnapshot());
+                    chunks.add(iworld.getBlockAt(x, 0, z).getChunk().getChunkSnapshot());
                     iworld.getBlockAt(x, 0, z).getChunk().unload();
                 } else {
-                    chunkSnapshot.add(iworld.getBlockAt(x, 0, z).getChunk().getChunkSnapshot());
+                    chunks.add(iworld.getBlockAt(x, 0, z).getChunk().getChunkSnapshot());
                 }
             }
         }
+        return chunks;
+    }
 
-        int worldHeight = iworld.getMaxHeight();
-        Bukkit.getServer().getScheduler().runTaskAsynchronously(this, new Runnable() {
-            @Override
-            public void run() {
-                String str = "玩家 " + name + " 的岛屿上有：";
-                Iterator it = chunkSnapshot.iterator();
+    private void checkIsland(String player, boolean fromchat, CommandSender sender) {
+        if (!fromchat && sender == null) {
+            throw new NullPointerException();
+        }
 
-                Map<MaterialData, Integer> countMap = new HashMap<>();
-                while(it.hasNext()) {
-                    ChunkSnapshot chunk = (ChunkSnapshot)it.next();
-                    for(int x = 0; x < 16; ++x) {
-                        if (chunk.getX() * 16 + x >= island.getMinProtectedX() && chunk.getX() * 16 + x < island.getMinProtectedX() + island.getProtectionSize()) {
-                            for (int z = 0; z < 16; ++z) {
-                                if (chunk.getZ() * 16 + z >= island.getMinProtectedZ() && chunk.getZ() * 16 + z < island.getMinProtectedZ() + island.getProtectionSize()) {
-                                    for (int y = 0; y < worldHeight; ++y) {
-                                        int id = chunk.getBlockTypeId(x, y, z);
-                                        MaterialData data1 = new MaterialData(id, (byte) chunk.getBlockData(x, y, z));
-                                        MaterialData data2 = new MaterialData(id);
-                                        int n = countMap.getOrDefault(data1, 0);
-                                        countMap.put(data1, ++n);
+        UUID targetPlayer = Bukkit.getOfflinePlayer(player).getUniqueId();
+        Island island = ASkyBlock.getPlugin().getGrid().getIsland(targetPlayer);
+        Set<ChunkSnapshot> chunks = getIslandChunk(island);
+        int worldHeight = ASkyBlockAPI.getInstance().getIslandWorld().getMaxHeight();
+        Bukkit.getServer().getScheduler().runTaskAsynchronously(this, () -> {
+            String str = "玩家 " + player + " 的岛屿上有：";
+            Iterator it = chunks.iterator();
+
+            Map<MaterialData, Integer> countMap = new HashMap<>();
+            while(it.hasNext()) {
+                ChunkSnapshot chunk = (ChunkSnapshot)it.next();
+                for(int x = 0; x < 16; ++x) {
+                    if (chunk.getX() * 16 + x >= island.getMinProtectedX() && chunk.getX() * 16 + x < island.getMinProtectedX() + island.getProtectionSize()) {
+                        for (int z = 0; z < 16; ++z) {
+                            if (chunk.getZ() * 16 + z >= island.getMinProtectedZ() && chunk.getZ() * 16 + z < island.getMinProtectedZ() + island.getProtectionSize()) {
+                                for (int y = 0; y < worldHeight; ++y) {
+                                    int id = chunk.getBlockTypeId(x, y, z);
+                                    MaterialData data = new MaterialData(id, (byte) chunk.getBlockData(x, y, z));
+                                    int n = countMap.getOrDefault(data, 0);
+                                    countMap.put(data, ++n);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            for (Map.Entry<MaterialData, Integer> e : countMap.entrySet()) {
+                MaterialData data = e.getKey();
+                if (data.getItemTypeId() == 0)
+                    continue;
+                int count = e.getValue();
+                ItemStack item = data.toItemStack(count);
+                str += ItemHelper.getShownString(item) + " ";
+            }
+
+            if (fromchat) {
+                sendToGroup(str);
+            } else {
+                sender.sendMessage(str);
+            }
+        });
+    }
+
+
+    private void checkContainer(String player) {
+        UUID targetPlayer = Bukkit.getOfflinePlayer(player).getUniqueId();
+        Island island = ASkyBlock.getPlugin().getGrid().getIsland(targetPlayer);
+        Set<ChunkSnapshot> chunks = getIslandChunk(island);
+        World iworld = ASkyBlockAPI.getInstance().getIslandWorld();
+
+        int worldHeight = ASkyBlockAPI.getInstance().getIslandWorld().getMaxHeight();
+        Bukkit.getServer().getScheduler().runTaskAsynchronously(this, () -> {
+            String str = "玩家 " + player + " 岛屿上的容器里有：";
+
+            for (ChunkSnapshot chunkSnapshot : chunks) {
+                Chunk chunk = iworld.getChunkAt(chunkSnapshot.getX(), chunkSnapshot.getZ());
+                for (int x = 0; x < 16; ++x) {
+                    if (chunk.getX() * 16 + x >= island.getMinProtectedX() && chunk.getX() * 16 + x < island.getMinProtectedX() + island.getProtectionSize()) {
+                        for (int z = 0; z < 16; ++z) {
+                            if (chunk.getZ() * 16 + z >= island.getMinProtectedZ() && chunk.getZ() * 16 + z < island.getMinProtectedZ() + island.getProtectionSize()) {
+                                for (int y = 0; y < worldHeight; ++y) {
+                                    BlockState blockState = chunk.getBlock(x, y, z).getState();
+                                    if (blockState instanceof InventoryHolder) {
+                                        Inventory inventory = ((InventoryHolder)blockState).getInventory();
+                                        for (ItemStack item:inventory.getContents()) {
+                                            if (item != null && item.getType() != Material.AIR) {
+                                                if (ItemHelper.isContainer(item)) {
+                                                    str += ItemHelper.getContainerItemsRecursively(item);
+                                                } else
+                                                    str += ItemHelper.getShownString(item) + " ";
+                                            }
+                                        }
                                     }
                                 }
                             }
                         }
                     }
                 }
-
-                Iterator<Map.Entry<MaterialData, Integer>> entry = countMap.entrySet().iterator();
-                while (entry.hasNext()) {
-                    Map.Entry<MaterialData, Integer> e = entry.next();
-                    MaterialData data = e.getKey();
-                    if(data.getItemTypeId()==0)
-                        continue;
-                    int count = e.getValue();
-                    ItemStack item = data.toItemStack(count);
-                    str += ItemHelper.getShownString(item) + " ";
-                }
-
-                if (fromchat) {
-                    sendToGroup(str);
-                } else {
-                    sender.sendMessage(str);
-                }
             }
+            sendToGroup(str);
         });
     }
 
-    class ServerThread extends Thread
+    class MessageHandleThread extends Thread
     {
         BufferedReader rdr = null;
         PrintWriter wtr = null;
         Socket sk = null;
-        public ServerThread(Socket sk)
+        MessageHandleThread(Socket sk)
         {
             this.sk = sk;
         }
@@ -159,7 +198,7 @@ public class Chat2QQbot extends JavaPlugin implements Listener {
                         .getInputStream()));
                 String payload = rdr.readLine();
                 getLogger().info("Received message:" + payload);
-                if(payload.indexOf("001|invsee|")!=-1)
+                if(payload.startsWith("001|invsee|"))
                 {
                     String pn = payload.replace("001|invsee|", "").replace(" ", "");
                     try {
@@ -179,7 +218,7 @@ public class Chat2QQbot extends JavaPlugin implements Listener {
                         sendToGroup("读取异常！");
                     }
                 }
-                else if(enableAskyblock && payload.startsWith("001|message|"))
+                else if(payload.startsWith("001|message|"))
                 {
                     String[] args = payload.split("\\|");
                     if (args.length < 5) {
@@ -190,7 +229,7 @@ public class Chat2QQbot extends JavaPlugin implements Listener {
                     String msg = args[4];
                     if (enableBindPlugin) {
 
-                        String binded = MustBindYourQQ.plugin.getQQBinded(qq);
+                        String binded = MustBindYourQQ.plugin.getBindedPlayer(qq);
                         if(binded.isEmpty())
                             Bukkit.broadcastMessage(String.format("§7[§3群消息§7]§b%s§7:§6%s", nick, msg));
                         else
@@ -200,9 +239,20 @@ public class Chat2QQbot extends JavaPlugin implements Listener {
                     }
 
                     sendToGroup("[已发送]");
+                } else if (enableAskyblock && payload.startsWith("001|container|")) {
+                    String player = payload.replace("001|container|", "").replace(" ", "");
+                    try {
+                        checkContainer(player);
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                        sendToGroup("读取异常！");
+                    }
                 } else if (payload.startsWith("001|broadcast|")) {
                     String msg = payload.replace("001|broadcast|", "");
                     Bukkit.broadcastMessage(msg);
+                } else if (payload.equals("001|cmd|")) {
+                    String cmd = payload.replace("001|cmd|", "");
+                    Bukkit.getServer().dispatchCommand(Bukkit.getConsoleSender(), cmd);
                 }
 
             }
@@ -213,6 +263,11 @@ public class Chat2QQbot extends JavaPlugin implements Listener {
 
         }
 
+    }
+
+    @Override
+    public void onDisable() {
+        serverSocket = null;
     }
 
     @Override
@@ -233,46 +288,37 @@ public class Chat2QQbot extends JavaPlugin implements Listener {
         sendToGroup("服务器已启动完成！");
     }
 
-    void initialize() {
+    private void initialize() {
         saveDefaultConfig();
         reloadConfig();
         FileConfiguration cfg = getConfig();
         servername = cfg.getString("servername");
-        port = cfg.getInt("port");
         groupid = cfg.getString("groupid");
         enableAskyblock = cfg.getBoolean("enable-askyblock");
         enableBindPlugin = cfg.getBoolean("enable-bind-plugin");
+        int port = cfg.getInt("port");
 
-        ServerSocket server = null;
         final Socket[] sk = {null};
         try
         {
-            if(server != null)
-                server.close();
-            server = new ServerSocket(port);
+            serverSocket = new ServerSocket(port);
         }
         catch (IOException e)
         {
             e.printStackTrace();
         }
-        ServerSocket finalServer = server;
+        ServerSocket finalServer = serverSocket;
         new Thread(() -> {
-
-            while (true)
-            {
-                try
-                {
+            while (serverSocket != null) {
+                try {
                     //每个请求交给一个线程去处理
                     sk[0] = finalServer.accept();
-                    ServerThread th = new ServerThread(sk[0]);
+                    MessageHandleThread th = new MessageHandleThread(sk[0]);
                     th.start();
                     Thread.sleep(100);
-                }
-                catch (Exception e)
-                {
+                } catch (Exception e) {
                     e.printStackTrace();
                 }
-
             }
         }).start();
     }
@@ -284,6 +330,16 @@ public class Chat2QQbot extends JavaPlugin implements Listener {
                 if(args[0].equalsIgnoreCase("reload")) {
                     initialize();
                     sender.sendMessage("配置重载!");
+                }
+
+                if(args[0].equalsIgnoreCase("inv") && args.length > 1) {
+                    String player = args[1];
+                    sender.sendMessage(checkInv(player));
+                }
+
+                if(args[0].equalsIgnoreCase("is") && args.length > 1) {
+                    String player = args[1];
+                    checkIsland(player, false, sender);
                 }
 
                 if (args[0].equalsIgnoreCase("msg") && args.length > 1) {
@@ -323,66 +379,11 @@ public class Chat2QQbot extends JavaPlugin implements Listener {
         sendToGroup(String.format("[%s] %s 下线了", servername, event.getPlayer().getName()));
     }
 
-    public void sendToGroup(String msg) {
-        Bukkit.getScheduler().runTaskAsynchronously(this, new Runnable() {
-            @Override
-            public void run() {
-                String res = post("http://localhost:5701/send_group_msg?group_id="+groupid, "message="+msg);
-            }
-        });
+    private void sendToGroup(String msg) {
+        Bukkit.getScheduler().runTaskAsynchronously(this, () -> post("http://localhost:5701/send_group_msg?group_id=" + groupid, "message=" + msg));
     }
 
-    /**
-     * 发起http请求获取返回结果
-     * @param req_url 请求地址
-     * @return
-     */
-    public static String httpRequest(String req_url) {
-        StringBuffer buffer = new StringBuffer();
-        try {
-            URL url = new URL(req_url);
-            HttpURLConnection httpUrlConn = (HttpURLConnection) url.openConnection();
-
-            httpUrlConn.setDoOutput(false);
-            httpUrlConn.setDoInput(true);
-            httpUrlConn.setUseCaches(false);
-
-            httpUrlConn.setRequestMethod("GET");
-            httpUrlConn.connect();
-
-            // 将返回的输入流转换成字符串
-            InputStream inputStream = httpUrlConn.getInputStream();
-            InputStreamReader inputStreamReader = new InputStreamReader(inputStream, "utf-8");
-            BufferedReader bufferedReader = new BufferedReader(inputStreamReader);
-
-            String str = null;
-            while ((str = bufferedReader.readLine()) != null) {
-                buffer.append(str);
-            }
-            bufferedReader.close();
-            inputStreamReader.close();
-            // 释放资源
-            inputStream.close();
-            inputStream = null;
-            httpUrlConn.disconnect();
-
-        } catch (Exception e) {
-            System.out.println(e.getStackTrace());
-        }
-        return buffer.toString();
-    }
-
-
-    /**
-     * 发送HttpPost请求
-     *
-     * @param strURL
-     *            服务地址
-     * @param
-     *
-     * @return 成功:返回json字符串<br/>
-     */
-    public static String post(String strURL, String postData) {
+    private static String post(String strURL, String postData) {
         String response = "";
         try {
             //访问准备

@@ -1,21 +1,20 @@
 package com.willzcode;
 
 import com.comphenix.protocol.utility.MinecraftReflection;
-import com.comphenix.protocol.wrappers.BukkitConverters;
 import com.comphenix.protocol.wrappers.nbt.*;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
-import org.bukkit.metadata.Metadatable;
 
 import java.util.ArrayList;
-import java.util.Iterator;
 import java.util.List;
 
 /**
  * Created by willz on 2018/3/19.
+ * ItemHelper deal with ItemStack
  */
-public class ItemHelper {
-    public static ItemStack fromNbtCompound(NbtCompound tag) {
+@SuppressWarnings("deprecation")
+class ItemHelper {
+    private static ItemStack fromNbtCompound(NbtCompound tag) {
         int id = tag.getShortOrDefault("id");
         int count = tag.getByteOrDefault("Count");
         short damage = tag.getShortOrDefault("Damage");
@@ -28,35 +27,34 @@ public class ItemHelper {
         return item;
     }
 
-    public static List<ItemStack> fromContainer(ItemStack container) {
+    private static List<ItemStack> fromContainer(ItemStack container) {
         //Object nmsitem = MinecraftReflection.getMinecraftItemStack(container);
         container = MinecraftReflection.getBukkitItemStack(container);
         NbtWrapper<?> tag = NbtFactory.fromItemTag(container);
         List<ItemStack> items = new ArrayList<>();
         if (tag.getType() == NbtType.TAG_LIST) {
             NbtList list = (NbtList) tag;
-            for(Iterator it = list.iterator(); it.hasNext();) {
-                NbtCompound tagitem = (NbtCompound) it.next();
-                items.add(fromNbtCompound(tagitem));
+            for (Object aList : list) {
+                NbtCompound tagItem = (NbtCompound) aList;
+                items.add(fromNbtCompound(tagItem));
             }
         } else if (tag.getType() == NbtType.TAG_COMPOUND) {
             NbtCompound compound = (NbtCompound) tag;
-            for(Iterator it = compound.iterator(); it.hasNext();) {
-                NbtWrapper<?> tagitem = (NbtWrapper<?>) it.next();
-                if(tagitem.getType() == NbtType.TAG_COMPOUND)
-                    items.add(fromNbtCompound((NbtCompound) tagitem));
+            for (NbtBase<?> aCompound : compound) {
+                NbtWrapper<?> tagItem = (NbtWrapper<?>) aCompound;
+                if (tagItem.getType() == NbtType.TAG_COMPOUND)
+                    items.add(fromNbtCompound((NbtCompound) tagItem));
             }
         }
         return items;
     }
 
-    public static String getContainerItemsRecursively(ItemStack container) {
+    static String getContainerItemsRecursively(ItemStack container) {
         String bagstr = "";
         List<ItemStack> items = ItemHelper.fromContainer(container);
-        for (Iterator it = items.iterator(); it.hasNext(); ) {
-            ItemStack item = (ItemStack) it.next();
+        for (ItemStack item : items) {
             if (item != null) {
-                if(isContainer(item))
+                if (isContainer(item))
                     bagstr += getContainerItemsRecursively(item);
                 else
                     bagstr += getShownString(item) + " ";
@@ -65,15 +63,16 @@ public class ItemHelper {
         return bagstr;
     }
 
-    public static boolean isContainer(ItemStack itemStack) {
+    static boolean isContainer(ItemStack itemStack) {
         return itemStack.getTypeId() == 5227;
     }
 
-    public static String getShownString(ItemStack i) {
+    static String getShownString(ItemStack i) {
         return getLocalizedName(i, true)+ "×" + i.getAmount();
     }
 
-    public static String getLocalizedName(ItemStack i, boolean oldname) {
+    @SuppressWarnings("SameParameterValue")
+    private static String getLocalizedName(ItemStack i, boolean oldname) {
         try {
             if (oldname) {
                 i = new ItemStack(i);
