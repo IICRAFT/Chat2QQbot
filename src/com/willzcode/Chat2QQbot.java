@@ -301,6 +301,9 @@ public class Chat2QQbot extends JavaPlugin implements Listener {
         final Socket[] sk = {null};
         try
         {
+            if(serverSocket != null)
+                serverSocket.close();
+
             serverSocket = new ServerSocket(port);
         }
         catch (IOException e)
