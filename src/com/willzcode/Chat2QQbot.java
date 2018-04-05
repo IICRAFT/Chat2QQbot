@@ -11,11 +11,6 @@ import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.entity.Player;
-import org.bukkit.event.EventHandler;
-import org.bukkit.event.Listener;
-import org.bukkit.event.player.AsyncPlayerChatEvent;
-import org.bukkit.event.player.PlayerJoinEvent;
-import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemStack;
@@ -23,7 +18,10 @@ import org.bukkit.material.MaterialData;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.io.*;
-import java.net.*;
+import java.net.HttpURLConnection;
+import java.net.ServerSocket;
+import java.net.Socket;
+import java.net.URL;
 import java.util.*;
 
 /**
@@ -31,12 +29,13 @@ import java.util.*;
  * A Bukkit plugin make connection to group using coolq
  */
 @SuppressWarnings({"SpellCheckingInspection", "deprecation"})
-public class Chat2QQbot extends JavaPlugin implements Listener {
+public class Chat2QQbot extends JavaPlugin {
+    static Chat2QQbot plugin;
     private IPlayerDataManager playerLoader = null;
 
-    private String servername;
+    String servername;
     private String groupid;
-    private boolean enableAskyblock;
+    boolean enableAskyblock;
     private boolean enableBindPlugin;
     private ServerSocket serverSocket;
 
@@ -250,7 +249,7 @@ public class Chat2QQbot extends JavaPlugin implements Listener {
                 } else if (payload.startsWith("001|broadcast|")) {
                     String msg = payload.replace("001|broadcast|", "");
                     Bukkit.broadcastMessage(msg);
-                } else if (payload.equals("001|cmd|")) {
+                } else if (payload.startsWith("001|cmd|")) {
                     String cmd = payload.replace("001|cmd|", "");
                     Bukkit.getServer().dispatchCommand(Bukkit.getConsoleSender(), cmd);
                 }
@@ -265,6 +264,10 @@ public class Chat2QQbot extends JavaPlugin implements Listener {
 
     }
 
+    long getIslandLevel(UUID uuid) {
+        return ASkyBlockAPI.getInstance().getIslandLevel(uuid);
+    }
+
     @Override
     public void onDisable() {
         serverSocket = null;
@@ -272,6 +275,8 @@ public class Chat2QQbot extends JavaPlugin implements Listener {
 
     @Override
     public void onEnable() {
+        plugin = this;
+
         boolean success = InternalAccessor.Initialize(this.getServer());
         if (success) {
             playerLoader = InternalAccessor.Instance.newPlayerDataManager();
@@ -280,7 +285,7 @@ public class Chat2QQbot extends JavaPlugin implements Listener {
         }
 
         //注册事件监听
-        Bukkit.getPluginManager().registerEvents(this, this);
+        Bukkit.getPluginManager().registerEvents(new EventListener(), this);
 
         initialize();
 
@@ -302,7 +307,9 @@ public class Chat2QQbot extends JavaPlugin implements Listener {
         try
         {
             if(serverSocket != null)
-                serverSocket.close();
+                try {
+                    serverSocket.close();
+                } catch (Exception ignored){}
 
             serverSocket = new ServerSocket(port);
         }
@@ -358,31 +365,7 @@ public class Chat2QQbot extends JavaPlugin implements Listener {
         return true;
     }
 
-    @EventHandler
-    public void onPlayerSay(AsyncPlayerChatEvent event)
-    {
-        if(!event.isCancelled()) {
-            if(enableAskyblock) {
-                long lvl = ASkyBlockAPI.getInstance().getLongIslandLevel(event.getPlayer().getUniqueId());
-                sendToGroup(String.format("[空岛%s级]%s:%s", lvl, event.getPlayer().getName(), event.getMessage()));
-            }
-            else
-                sendToGroup(String.format("%s:%s", event.getPlayer().getName(), event.getMessage()));
-        }
-    }
-
-    @EventHandler
-    public void onPlayerJoin(PlayerJoinEvent event)
-    {
-        sendToGroup(String.format("[%s] %s 上线了", servername, event.getPlayer().getName()));
-    }
-
-    @EventHandler
-    public void onPlayerQuit(PlayerQuitEvent event) {
-        sendToGroup(String.format("[%s] %s 下线了", servername, event.getPlayer().getName()));
-    }
-
-    private void sendToGroup(String msg) {
+    void sendToGroup(String msg) {
         Bukkit.getScheduler().runTaskAsynchronously(this, () -> post("http://localhost:5701/send_group_msg?group_id=" + groupid, "message=" + msg));
     }
 
