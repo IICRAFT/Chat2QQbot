@@ -2,9 +2,6 @@ package com.willzcode;
 
 import com.lishid.openinv.internal.IPlayerDataManager;
 import com.lishid.openinv.internal.InternalAccessor;
-import com.wasteofplastic.askyblock.ASkyBlock;
-import com.wasteofplastic.askyblock.ASkyBlockAPI;
-import com.wasteofplastic.askyblock.Island;
 import org.bukkit.*;
 import org.bukkit.block.BlockState;
 import org.bukkit.command.Command;
@@ -30,13 +27,13 @@ import java.util.*;
  */
 @SuppressWarnings({"SpellCheckingInspection", "deprecation"})
 public class Chat2QQbot extends JavaPlugin {
-    static Chat2QQbot plugin;
+    public static Chat2QQbot plugin;
     private IPlayerDataManager playerLoader = null;
 
     String servername;
     private String groupid;
-    boolean enableAskyblock;
-    private boolean enableBindPlugin;
+    boolean enableAskyblock = false;
+    private boolean enableBindPlugin = false;
     private ServerSocket serverSocket;
 
     private String checkInv(String name) {
@@ -72,112 +69,6 @@ public class Chat2QQbot extends JavaPlugin {
         return "玩家 " + name + " 有如下物品"+(hasbag?"(已展开手提袋)":"")+"：" + invstr;
     }
 
-    private Set<ChunkSnapshot> getIslandChunk(Island island) {
-        World iworld = ASkyBlockAPI.getInstance().getIslandWorld();
-        Set<ChunkSnapshot> chunks = new HashSet<>();
-        for(int x = island.getMinProtectedX(); x < island.getMinProtectedX() + island.getProtectionSize() + 16; x += 16) {
-            for(int z = island.getMinProtectedZ(); z < island.getMinProtectedZ() + island.getProtectionSize() + 16; z += 16) {
-                if(!iworld.getBlockAt(x, 0, z).getChunk().isLoaded()) {
-                    iworld.getBlockAt(x, 0, z).getChunk().load();
-                    chunks.add(iworld.getBlockAt(x, 0, z).getChunk().getChunkSnapshot());
-                    iworld.getBlockAt(x, 0, z).getChunk().unload();
-                } else {
-                    chunks.add(iworld.getBlockAt(x, 0, z).getChunk().getChunkSnapshot());
-                }
-            }
-        }
-        return chunks;
-    }
-
-    private void checkIsland(String player, boolean fromchat, CommandSender sender) {
-        if (!fromchat && sender == null) {
-            throw new NullPointerException();
-        }
-
-        UUID targetPlayer = Bukkit.getOfflinePlayer(player).getUniqueId();
-        Island island = ASkyBlock.getPlugin().getGrid().getIsland(targetPlayer);
-        Set<ChunkSnapshot> chunks = getIslandChunk(island);
-        int worldHeight = ASkyBlockAPI.getInstance().getIslandWorld().getMaxHeight();
-        Bukkit.getServer().getScheduler().runTaskAsynchronously(this, () -> {
-            String str = "玩家 " + player + " 的岛屿上有：";
-            Iterator it = chunks.iterator();
-
-            Map<MaterialData, Integer> countMap = new HashMap<>();
-            while(it.hasNext()) {
-                ChunkSnapshot chunk = (ChunkSnapshot)it.next();
-                for(int x = 0; x < 16; ++x) {
-                    if (chunk.getX() * 16 + x >= island.getMinProtectedX() && chunk.getX() * 16 + x < island.getMinProtectedX() + island.getProtectionSize()) {
-                        for (int z = 0; z < 16; ++z) {
-                            if (chunk.getZ() * 16 + z >= island.getMinProtectedZ() && chunk.getZ() * 16 + z < island.getMinProtectedZ() + island.getProtectionSize()) {
-                                for (int y = 0; y < worldHeight; ++y) {
-                                    int id = chunk.getBlockTypeId(x, y, z);
-                                    MaterialData data = new MaterialData(id, (byte) chunk.getBlockData(x, y, z));
-                                    int n = countMap.getOrDefault(data, 0);
-                                    countMap.put(data, ++n);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            for (Map.Entry<MaterialData, Integer> e : countMap.entrySet()) {
-                MaterialData data = e.getKey();
-                if (data.getItemTypeId() == 0)
-                    continue;
-                int count = e.getValue();
-                ItemStack item = data.toItemStack(count);
-                str += ItemHelper.getShownString(item) + " ";
-            }
-
-            if (fromchat) {
-                sendToGroup(str);
-            } else {
-                sender.sendMessage(str);
-            }
-        });
-    }
-
-
-    private void checkContainer(String player) {
-        UUID targetPlayer = Bukkit.getOfflinePlayer(player).getUniqueId();
-        Island island = ASkyBlock.getPlugin().getGrid().getIsland(targetPlayer);
-        Set<ChunkSnapshot> chunks = getIslandChunk(island);
-        World iworld = ASkyBlockAPI.getInstance().getIslandWorld();
-
-        int worldHeight = ASkyBlockAPI.getInstance().getIslandWorld().getMaxHeight();
-        Bukkit.getServer().getScheduler().runTaskAsynchronously(this, () -> {
-            String str = "玩家 " + player + " 岛屿上的容器里有：";
-
-            for (ChunkSnapshot chunkSnapshot : chunks) {
-                Chunk chunk = iworld.getChunkAt(chunkSnapshot.getX(), chunkSnapshot.getZ());
-                for (int x = 0; x < 16; ++x) {
-                    if (chunk.getX() * 16 + x >= island.getMinProtectedX() && chunk.getX() * 16 + x < island.getMinProtectedX() + island.getProtectionSize()) {
-                        for (int z = 0; z < 16; ++z) {
-                            if (chunk.getZ() * 16 + z >= island.getMinProtectedZ() && chunk.getZ() * 16 + z < island.getMinProtectedZ() + island.getProtectionSize()) {
-                                for (int y = 0; y < worldHeight; ++y) {
-                                    BlockState blockState = chunk.getBlock(x, y, z).getState();
-                                    if (blockState instanceof InventoryHolder) {
-                                        Inventory inventory = ((InventoryHolder)blockState).getInventory();
-                                        for (ItemStack item:inventory.getContents()) {
-                                            if (item != null && item.getType() != Material.AIR) {
-                                                if (ItemHelper.isContainer(item)) {
-                                                    str += ItemHelper.getContainerItemsRecursively(item);
-                                                } else
-                                                    str += ItemHelper.getShownString(item) + " ";
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            sendToGroup(str);
-        });
-    }
-
     class MessageHandleThread extends Thread
     {
         BufferedReader rdr = null;
@@ -211,7 +102,7 @@ public class Chat2QQbot extends JavaPlugin {
                 {
                     String pn = payload.replace("001|island|", "").replace(" ", "");
                     try {
-                        checkIsland(pn, true, null);
+                        ASkyblockConnector.checkIsland(pn, true, null);
                     } catch (Exception e) {
                         e.printStackTrace();
                         sendToGroup("读取异常！");
@@ -227,8 +118,7 @@ public class Chat2QQbot extends JavaPlugin {
                     String nick = args[3];
                     String msg = args[4];
                     if (enableBindPlugin) {
-
-                        String binded = MustBindYourQQ.plugin.getBindedPlayer(qq);
+                        String binded = BindPluginConnector.getBindedPlayer(qq);
                         if(binded.isEmpty())
                             Bukkit.broadcastMessage(String.format("§7[§3群消息§7]§b%s§7:§6%s", nick, msg));
                         else
@@ -241,7 +131,7 @@ public class Chat2QQbot extends JavaPlugin {
                 } else if (enableAskyblock && payload.startsWith("001|container|")) {
                     String player = payload.replace("001|container|", "").replace(" ", "");
                     try {
-                        checkContainer(player);
+                        ASkyblockConnector.checkContainer(player);
                     } catch (Exception e) {
                         e.printStackTrace();
                         sendToGroup("读取异常！");
@@ -252,6 +142,18 @@ public class Chat2QQbot extends JavaPlugin {
                 } else if (payload.startsWith("001|cmd|")) {
                     String cmd = payload.replace("001|cmd|", "");
                     Bukkit.getServer().dispatchCommand(Bukkit.getConsoleSender(), cmd);
+                } else if (payload.startsWith("001|stats|")) {
+                    String cmd = payload.replace("001|stats|", "");
+                    int ct = 0;
+                    String onlines = "";
+                    for (Player player : getServer().getOnlinePlayers()) {
+                        if (ct != 0) {
+                            onlines += " ";
+                        }
+                        onlines += player.getName();
+                        ct++;
+                    }
+                    sendToGroup(String.format("服务器在线人数：%d人\n%s", cmd, onlines));
                 }
 
             }
@@ -262,10 +164,6 @@ public class Chat2QQbot extends JavaPlugin {
 
         }
 
-    }
-
-    long getIslandLevel(UUID uuid) {
-        return ASkyBlockAPI.getInstance().getIslandLevel(uuid);
     }
 
     @Override
@@ -299,8 +197,15 @@ public class Chat2QQbot extends JavaPlugin {
         FileConfiguration cfg = getConfig();
         servername = cfg.getString("servername");
         groupid = cfg.getString("groupid");
-        enableAskyblock = cfg.getBoolean("enable-askyblock");
-        enableBindPlugin = cfg.getBoolean("enable-bind-plugin");
+
+        if(Bukkit.getPluginManager().isPluginEnabled("ASkyBlock")) {
+            enableAskyblock = true;
+        }
+
+        if(Bukkit.getPluginManager().isPluginEnabled("MustBindYourQQ")) {
+            enableBindPlugin = true;
+        }
+
         int port = cfg.getInt("port");
 
         final Socket[] sk = {null};
@@ -349,7 +254,7 @@ public class Chat2QQbot extends JavaPlugin {
 
                 if(args[0].equalsIgnoreCase("is") && args.length > 1) {
                     String player = args[1];
-                    checkIsland(player, false, sender);
+                    ASkyblockConnector.checkIsland(player, false, sender);
                 }
 
                 if (args[0].equalsIgnoreCase("msg") && args.length > 1) {
@@ -366,7 +271,7 @@ public class Chat2QQbot extends JavaPlugin {
     }
 
     void sendToGroup(String msg) {
-        Bukkit.getScheduler().runTaskAsynchronously(this, () -> post("http://localhost:5701/send_group_msg?group_id=" + groupid, "message=" + msg));
+        Bukkit.getScheduler().runTaskAsynchronously(this, () -> post("http://localhost:5700/send_group_msg?group_id=" + groupid, "message=" + msg));
     }
 
     private static String post(String strURL, String postData) {

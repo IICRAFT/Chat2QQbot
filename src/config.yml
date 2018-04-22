@@ -1,6 +1,6 @@
-#you must change following values
+#你的群号
 groupid: 000000
-port: 000000
+#本插件端口
+port: 6801
+#服务器名
 servername: 服务器
-enable-askyblock: false
-enable-bind-plugin: false
