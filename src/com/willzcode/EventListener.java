@@ -23,17 +23,19 @@ public class EventListener implements Listener {
     @EventHandler
     public void onPlayerSay(AsyncPlayerChatEvent event)
     {
-        if(!event.isCancelled()) {
+        String msg = event.getMessage();
+        if(!event.isCancelled() && (msg.startsWith("!") || msg.startsWith("！"))) {
+            msg = String.format("%s", msg.subSequence(1, msg.length()));
             if(plugin.enableAskyblock) {
                 try {
                     long lvl = ASkyblockConnector.getIslandLevel(event.getPlayer().getUniqueId());
-                    plugin.sendToGroup(String.format("[空岛%s级]%s:%s", lvl, event.getPlayer().getName(), event.getMessage()));
+                    plugin.sendToGroup(String.format("[空岛%s级]%s:%s", lvl, event.getPlayer().getName(), msg));
                 } catch (Exception e) {
                     e.printStackTrace();
                 }
             }
             else
-                plugin.sendToGroup(String.format("%s:%s", event.getPlayer().getName(), event.getMessage()));
+                plugin.sendToGroup(String.format("%s:%s", event.getPlayer().getName(), msg));
         }
     }
 

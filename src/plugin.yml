@@ -4,7 +4,7 @@ name: Chat2QQbot
 main: com.willzcode.Chat2QQbot
 #version 这个是版本号
 version: 1.0
-depend: [ProtocolLib]
+softdepend: [ProtocolLib]
 
 commands:
    cq:

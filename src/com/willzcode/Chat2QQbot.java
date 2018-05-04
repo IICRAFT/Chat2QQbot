@@ -35,6 +35,7 @@ public class Chat2QQbot extends JavaPlugin {
     boolean enableAskyblock = false;
     private boolean enableBindPlugin = false;
     private ServerSocket serverSocket;
+    private int callbackPort;
 
     private String checkInv(String name) {
         Player p = Bukkit.getServer().getPlayer(name);
@@ -153,7 +154,7 @@ public class Chat2QQbot extends JavaPlugin {
                         onlines += player.getName();
                         ct++;
                     }
-                    sendToGroup(String.format("服务器在线人数：%d人\n%s", cmd, onlines));
+                    sendToGroup(String.format("服务器在线人数：%d人\n%s", ct, onlines));
                 }
 
             }
@@ -197,6 +198,7 @@ public class Chat2QQbot extends JavaPlugin {
         FileConfiguration cfg = getConfig();
         servername = cfg.getString("servername");
         groupid = cfg.getString("groupid");
+        callbackPort = cfg.getInt("callback-port", 5700);
 
         if(Bukkit.getPluginManager().isPluginEnabled("ASkyBlock")) {
             enableAskyblock = true;
@@ -271,7 +273,7 @@ public class Chat2QQbot extends JavaPlugin {
     }
 
     void sendToGroup(String msg) {
-        Bukkit.getScheduler().runTaskAsynchronously(this, () -> post("http://localhost:5700/send_group_msg?group_id=" + groupid, "message=" + msg));
+        Bukkit.getScheduler().runTaskAsynchronously(this, () -> post("http://localhost:" + callbackPort + "/send_group_msg?group_id=" + groupid, "message=" + msg));
     }
 
     private static String post(String strURL, String postData) {
@@ -280,15 +282,6 @@ public class Chat2QQbot extends JavaPlugin {
             //访问准备
             URL url = new URL(strURL);
 
-            //开始访问
-//            StringBuilder postData = new StringBuilder();
-//            for (Map.Entry<String, Object> param : params.entrySet()) {
-//                if (postData.length() != 0) postData.append('&');
-//                postData.append(URLEncoder.encode(param.getKey(), "UTF-8"));
-//                postData.append('=');
-//                postData.append(URLEncoder.encode(String.valueOf(param.getValue()), "UTF-8"));
-//            }
-//            byte[] postDataBytes = postData.toString().getBytes("UTF-8");
             byte[] postDataBytes = postData.getBytes("UTF-8");
 
             HttpURLConnection conn = (HttpURLConnection) url.openConnection();

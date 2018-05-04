@@ -4,3 +4,5 @@ groupid: 000000
 port: 6801
 #服务器名
 servername: 服务器
+#回调端口
+callback-port: 5700
